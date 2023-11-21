@@ -5,7 +5,7 @@ import math
 import scipy
 from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel, Sum, Product
+from sklearn.gaussian_process.kernels import Matern, WhiteKernel, ConstantKernel, DotProduct, Sum, Product
 from warnings import catch_warnings, simplefilter
 import warnings
 warnings.filterwarnings('ignore')
@@ -30,7 +30,7 @@ class BO_algo():
 
         ### define kernels ###
 
-        kernel1 = Matern(length_scale=0.5, length_scale_bounds="fixed", nu=2.5)
+        kernel1 = Matern(length_scale=0.5, length_scale_bounds=[1e-5, 1e5], nu=2.5)
         kernel2 = ConstantKernel(constant_value=0.5, constant_value_bounds="fixed")
         kernel3 = WhiteKernel(noise_level=0.15)  # 0.4, 0.5
         self.kernel_f = Sum(Product(kernel1, kernel2), kernel3)
@@ -41,9 +41,10 @@ class BO_algo():
         vkernel1 = Matern(length_scale=0.5, length_scale_bounds=[1e-5, 1e5], nu=2.5)
         vkernel2 = ConstantKernel(constant_value=np.sqrt(2))
         vkernel3 = WhiteKernel(noise_level=0.0001)
-        vkernel4 = ConstantKernel(constant_value=1.5)
+        vkernel4 = ConstantKernel(constant_value=4)
+        vkernel5 = DotProduct()
 
-        self.kernel_v = Sum(Sum(vkernel4, Product(vkernel1, vkernel2)), vkernel3)
+        self.kernel_v = Sum(Sum(Sum(vkernel4, Product(vkernel1, vkernel2)), vkernel3), vkernel5)
         # Default GaussianProcessRegressor (check argument possibilities)
         self.v_map = GaussianProcessRegressor(kernel=self.kernel_v, alpha=1e-10,
                                               optimizer='fmin_l_bfgs_b', n_restarts_optimizer=0, normalize_y=False,
@@ -54,8 +55,8 @@ class BO_algo():
         self.past_points = np.empty([0, 3])  # np.zeros([1, 3])
         self.gpucb_kappa = 1.2
         self.j_rec = 0
-        self.rec_warmup = 3
-        self.trade_off = 0.01#.05  # 0.01
+        self.rec_warmup = 0
+        self.trade_off = 0.05#.05  # 0.01
         self.x_train = []
         self.f_train = []
         self.v_train = []
@@ -136,7 +137,7 @@ class BO_algo():
         mu_v, sigma_v = self.v_map.predict([x], return_std=True)
         PI_v = norm.cdf(SAFETY_THRESHOLD + self.trade_off, loc=mu_v, scale=sigma_v)
 
-        if PI_v < .5:
+        if PI_v > 0.5:
             return PI_v
         else:
             # Expected Improvement computation
@@ -190,7 +191,7 @@ class BO_algo():
 
         # TODO: enter your code here
 
-        filter = (self.past_points[:, 2] > SAFETY_THRESHOLD + 0)#self.trade_off)
+        filter = (self.past_points[:, 2] > SAFETY_THRESHOLD + 0.05)#self.trade_off)
         sol = self.past_points[filter]
 
         try:
@@ -267,8 +268,8 @@ def main():
             f"shape (1, {DOMAIN.shape[0]})"
 
         # Obtain objective and constraint observation
-        obj_val = f(x) + np.randn()
-        cost_val = v(x) + np.randn()
+        obj_val = f(x) + np.random.randn()
+        cost_val = v(x) + np.random.randn()
         agent.add_data_point(x, obj_val, cost_val)
 
     # Validate solution
@@ -286,3 +287,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#%%

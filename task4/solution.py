@@ -173,8 +173,8 @@ class Agent:
         print("Using device: {}".format(self.device))
         self.memory = ReplayBuffer(self.min_buffer_size, self.max_buffer_size, self.device)
         self.reward_scale_par = 12
-        self.gamma_par = 0.99#0.98
-        self.alpha_par = 0.2#0.25
+        self.gamma_par = 0.97#0.98
+        self.alpha_par = 0.25#0.25
         self.polyak_par = 0.015#0.015
         
         self.setup_agent()

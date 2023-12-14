@@ -29,32 +29,24 @@ class NeuralNetwork(nn.Module):
         self.output_dim = output_dim
         self.hidden_size = hidden_size
         self.hidden_layers = hidden_layers
-        self.activation = activation
-        self.init_w = 3e-3
+        self.activ_func = activation
+        self.weights_initialization = 3e-3
         layers = []
 
-        # Input layer
         layers.append(nn.Linear(self.input_dim, self.hidden_size))
-        if self.activation == 'relu':
-            layers.append(nn.ReLU())
-        elif self.activation == 'tanh':
-            layers.append(nn.Tanh())
-        else:
-            raise NotImplementedError(f"Activation {activation} not implemented.")
+        layers.append(nn.ReLU())
 
-        # Hidden layers
         for _ in range(self.hidden_layers - 1):
             layers.append(nn.Linear(self.hidden_size, self.hidden_size))
-            if self.activation == 'relu':
+            if self.activ_func == 'relu':
                 layers.append(nn.ReLU())
-            elif self.activation == 'tanh':
-                layers.append(nn.Tanh())
+            elif self.activ_func == 'leakyrelu':
+                layers.append(nn.LeakyReLU())
 
-        # Output layer
-        out_layer = nn.Linear(self.hidden_size, self.output_dim)
-        out_layer.weight.data.uniform_(-self.init_w, self.init_w)
-        out_layer.bias.data.uniform_(-self.init_w, self.init_w)
-        layers.append(out_layer)
+        linear_output = nn.Linear(self.hidden_size, self.output_dim)
+        linear_output.weight.data.uniform_(-self.weights_initialization, self.weights_initialization)
+        linear_output.bias.data.uniform_(-self.weights_initialization, self.weights_initialization)
+        layers.append(linear_output)
 
         self.model = nn.Sequential(*layers)
 
@@ -76,16 +68,16 @@ class Actor:
         self.LOG_STD_MIN = -20
         self.LOG_STD_MAX = 2
         self.reparam_noise = 1e-6
-        env1 = get_env(g=10.0, train=False)
-        self.action_space = env1.action_space
         self.setup_actor()
 
     def setup_actor(self):
         '''
         This function sets up the actor network in the Actor class.
         '''
+        env_test = get_env(g=10.0, train=False)
+        self.action_space = env_test.action_space
         self.nn_actor = NeuralNetwork(self.state_dim, self.action_dim * 2, hidden_size=self.hidden_size,
-                                            hidden_layers=self.hidden_layers, activation='relu').to(self.device)
+                                            hidden_layers=self.hidden_layers, activation='leakyrelu').to(self.device)
         self.opt_actor = optim.Adam(self.nn_actor.parameters(), lr=self.actor_lr)
 
     def clamp_log_std(self, log_std: torch.Tensor) -> torch.Tensor:
@@ -146,7 +138,7 @@ class Critic:
         # TODO: Implement this function which sets up the critic(s). Take a look at the NeuralNetwork 
         # class in utils.py. Note that you can have MULTIPLE critic networks in this class.
         self.nn_critic = NeuralNetwork(self.state_dim + self.action_dim, 2, hidden_size=self.hidden_size,
-                                            hidden_layers=self.hidden_layers, activation='relu').to(self.device)
+                                            hidden_layers=self.hidden_layers, activation='leakyrelu').to(self.device)
         self.opt_critic = optim.Adam(self.nn_critic.parameters(), lr=self.critic_lr)
 
 class TrainableParameter:
@@ -180,11 +172,10 @@ class Agent:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device: {}".format(self.device))
         self.memory = ReplayBuffer(self.min_buffer_size, self.max_buffer_size, self.device)
-        self.scale = 12
-        self.gamma = 0.98
-        self.alpha = 0.1
-        self.polyak_par = 0.015#0.01
-        self.target_update_interval = 1
+        self.reward_scale_par = 12
+        self.gamma_par = 0.99#0.98
+        self.alpha_par = 0.2#0.25
+        self.polyak_par = 0.015#0.015
         
         self.setup_agent()
 
@@ -210,9 +201,7 @@ class Agent:
         tensor_state = torch.FloatTensor(s).unsqueeze(0).to(self.device)
         policy_output = self.nn_policy.nn_actor(tensor_state)
         action_mean = policy_output[:, 0]
-        action_log_std = policy_output[:, 1]
-        action_log_std_clamped = torch.clamp(action_log_std, min=-20, max=2)
-        action_std = torch.exp(action_log_std_clamped)
+        action_std = torch.exp(torch.clamp(policy_output[:, 1], min=-20, max=2))
 
         noise_dist = Normal(torch.zeros_like(action_mean), torch.ones_like(action_mean))
         noise_sample = noise_dist.sample().to(self.device)
@@ -284,9 +273,8 @@ class Agent:
         value_estimated = self.nn_value(s_batch)
         action_new, log_prob_action = self.nn_policy.get_action_and_log_prob(s_batch, deterministic=False)
 
-        # Train Q Networks
         value_target = self.nn_best_value(s_prime_batch)
-        q_target = self.gamma * value_target + self.scale * r_batch
+        q_target = self.gamma_par * value_target + self.reward_scale_par * r_batch
         loss_q1 = loss_function_q1(q1_estimated, q_target.detach())
         loss_q2 = loss_function_q2(q2_estimated, q_target.detach())
 
@@ -297,13 +285,12 @@ class Agent:
         opt_q2_soft.zero_grad()
         loss_q2.backward()
         opt_q2_soft.step()
-
-        # Train Value Network
+        
         q_min = torch.min(
             self.nn1_q_soft.nn_critic(torch.cat([s_batch, action_new], dim=1)),
             self.nn2_q_soft.nn_critic(torch.cat([s_batch, action_new], dim=1))
         )
-        scaled_act = self.alpha * log_prob_action
+        scaled_act = self.alpha_par * log_prob_action
         value_target_function = q_min - scaled_act
         loss_value = loss_function_value(value_estimated, value_target_function.detach())
 
@@ -317,7 +304,6 @@ class Agent:
         loss_policy.backward()
         opt_actor.step()
 
-        # Polyak Averaging for Target Network
         for param_target, param in zip(self.nn_best_value.parameters(), self.nn_value.parameters()):
             param_target.data.copy_(
                 (self.polyak_par * param.data) + ((1.0 - self.polyak_par) * param_target.data)

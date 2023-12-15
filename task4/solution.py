@@ -7,11 +7,14 @@ import numpy as np
 from gym.wrappers.monitoring.video_recorder import VideoRecorder
 import warnings
 from typing import Union
+import random
 from utils import ReplayBuffer, get_env, run_episode
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 torch.manual_seed(42)
+np.random.seed(42)
+random.seed(42)
 
 class NeuralNetwork(nn.Module):
     '''
@@ -38,11 +41,8 @@ class NeuralNetwork(nn.Module):
 
         for _ in range(self.hidden_layers - 1):
             layers.append(nn.Linear(self.hidden_size, self.hidden_size))
-            if self.activ_func == 'relu':
-                layers.append(nn.ReLU())
-            elif self.activ_func == 'leakyrelu':
-                layers.append(nn.LeakyReLU())
-
+            layers.append(nn.ReLU())
+                        
         linear_output = nn.Linear(self.hidden_size, self.output_dim)
         linear_output.weight.data.uniform_(-self.weights_initialization, self.weights_initialization)
         linear_output.bias.data.uniform_(-self.weights_initialization, self.weights_initialization)
@@ -77,7 +77,7 @@ class Actor:
         env_test = get_env(g=10.0, train=False)
         self.action_space = env_test.action_space
         self.nn_actor = NeuralNetwork(self.state_dim, self.action_dim * 2, hidden_size=self.hidden_size,
-                                            hidden_layers=self.hidden_layers, activation='leakyrelu').to(self.device)
+                                            hidden_layers=self.hidden_layers, activation='relu').to(self.device)
         self.opt_actor = optim.Adam(self.nn_actor.parameters(), lr=self.actor_lr)
 
     def clamp_log_std(self, log_std: torch.Tensor) -> torch.Tensor:
@@ -138,7 +138,7 @@ class Critic:
         # TODO: Implement this function which sets up the critic(s). Take a look at the NeuralNetwork 
         # class in utils.py. Note that you can have MULTIPLE critic networks in this class.
         self.nn_critic = NeuralNetwork(self.state_dim + self.action_dim, 2, hidden_size=self.hidden_size,
-                                            hidden_layers=self.hidden_layers, activation='leakyrelu').to(self.device)
+                                            hidden_layers=self.hidden_layers, activation='relu').to(self.device)
         self.opt_critic = optim.Adam(self.nn_critic.parameters(), lr=self.critic_lr)
 
 class TrainableParameter:
@@ -173,7 +173,7 @@ class Agent:
         print("Using device: {}".format(self.device))
         self.memory = ReplayBuffer(self.min_buffer_size, self.max_buffer_size, self.device)
         self.reward_scale_par = 12
-        self.gamma_par = 0.97#0.98
+        self.gamma_par = 0.98#0.98
         self.alpha_par = 0.25#0.25
         self.polyak_par = 0.015#0.015
         

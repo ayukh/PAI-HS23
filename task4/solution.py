@@ -16,6 +16,9 @@ torch.manual_seed(42)
 np.random.seed(42)
 random.seed(42)
 
+# Used as a guideline:
+# https://github.com/quantumiracle/Popular-RL-Algorithms/blob/master/sac_pendulum.py
+
 class NeuralNetwork(nn.Module):
     '''
     This class implements a neural network with a variable number of hidden layers and hidden units.
@@ -250,8 +253,6 @@ class Agent:
         # TODO: Implement one step of training for the agent.
         # Hint: You can use the run_gradient_update_step for each policy and critic.
         # Example: self.run_gradient_update_step(self.policy, policy_loss)
-        # This part of the code made use of the following github repo: 
-        # https://github.com/quantumiracle/Popular-RL-Algorithms/blob/master/sac_pendulum.py
 
         # Batch sampling
         batch = self.memory.sample(self.batch_size)
